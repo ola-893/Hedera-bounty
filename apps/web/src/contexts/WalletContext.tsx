@@ -49,11 +49,19 @@ export const WalletProvider = ({ children }: { children: ReactNode }) => {
           2
         );
         setBalance(hbarBalance);
+      } else {
+        throw new Error(
+          "No HashPack testnet signer was returned. Check that HashPack is on testnet and approve the WalletConnect session."
+        );
       }
     } catch (error) {
       console.error("Failed to connect wallet:", error);
+      setConnected(false);
+      setAddress(null);
+      setBalance(null);
+      throw error;
     }
-  }, []);
+  }, [mirrorNodeClient]);
 
   const disconnect = useCallback(() => {
     dappConnector.disconnectAll();

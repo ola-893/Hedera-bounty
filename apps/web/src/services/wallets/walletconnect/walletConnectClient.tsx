@@ -30,7 +30,8 @@ const refreshEvent = new EventEmitter();
 // WalletConnect Project ID
 const walletConnectProjectId =
   import.meta.env.VITE_WALLETCONNECT_PROJECT_ID ||
-  "377d75bb6f86a2ffd427d032ff6ea7d3";
+  import.meta.env.WALLETCONNECT_PROJECT_ID ||
+  "";
 
 const currentNetworkConfig = appConfig.networks.testnet;
 const hederaNetwork = currentNetworkConfig.network;
@@ -96,10 +97,15 @@ function signatureToHex(signature: any): string {
 let walletConnectInitPromise: Promise<void> | undefined = undefined;
 
 const initializeWalletConnect = async () => {
+  if (!walletConnectProjectId) {
+    throw new Error(
+      "Missing VITE_WALLETCONNECT_PROJECT_ID. Add your WalletConnect/Reown project ID to the root .env file and restart the frontend."
+    );
+  }
+
   if (walletConnectInitPromise === undefined) {
     walletConnectInitPromise = dappConnector.init({
       logger: "error",
-      // ✅ Add timeout and retry logic
     });
   }
 
@@ -118,7 +124,14 @@ const initializeWalletConnect = async () => {
 export const openWalletConnectModal = async () => {
   try {
     await initializeWalletConnect();
-    await dappConnector.openModal();
+    await dappConnector.openModal(undefined, true);
+
+    if (!dappConnector.signers.length) {
+      throw new Error(
+        "HashPack did not return a Hedera testnet account. Make sure HashPack is set to testnet and approve the WalletConnect request."
+      );
+    }
+
     refreshEvent.emit("sync");
   } catch (error) {
     console.error("Failed to open WalletConnect modal:", error);
