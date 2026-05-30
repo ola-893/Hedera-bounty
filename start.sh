@@ -26,7 +26,7 @@ else
   BACKEND_PID=$!
 
   # Wait a couple of seconds to let backend start up
-  sleep 2
+  sleep 5
 
   if ! kill -0 "$BACKEND_PID" >/dev/null 2>&1; then
     echo "❌ Backend API failed to start."

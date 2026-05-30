@@ -307,26 +307,45 @@ class WalletConnectWallet implements WalletInterface {
     }
 
     try {
-      console.log("Freezing generic transaction with WalletConnect signer...");
+      console.log("Sending transaction with WalletConnect signer...");
 
-      // ---- 1. Freeze ------------------------------------------------
-      const freezePromise = transaction.freezeWithSigner(signer as any);
-      const freezeTimeout = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error("Freeze timeout after 60s")), 60000)
-      );
-      const frozenTx = await Promise.race([freezePromise, freezeTimeout]);
-      console.log("Transaction frozen");
+      let txResponse: any;
 
-      // ---- 2. Execute -----------------------------------------------
-      console.log("Executing transaction...");
-      const execPromise = (frozenTx as any).executeWithSigner(signer as any);
-      const execTimeout = new Promise((_, reject) =>
-        setTimeout(
-          () => reject(new Error("Execution timeout after 90s")),
-          90000
-        )
-      );
-      const txResponse = await Promise.race([execPromise, execTimeout]);
+      try {
+        // ---- Standard Execution Path ---------------------------------
+        // This internally calls freezeWithSigner, which might try to 
+        // populateTransaction and crash if the backend already froze it.
+        console.log("Attempting standard executeWithSigner...");
+        const execPromise = transaction.executeWithSigner(signer as any);
+        const execTimeout = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("Execution timeout after 90s")), 90000)
+        );
+        txResponse = await Promise.race([execPromise, execTimeout]);
+      } catch (error: any) {
+        if (
+          error.message?.includes("immutable") ||
+          error.message?.includes("frozen")
+        ) {
+          console.log("Transaction is immutable (already frozen). Proceeding to sign directly...");
+          
+          // ---- Pre-Frozen Execution Path -----------------------------
+          // Sign directly, bypassing freezeWithSigner
+          const signPromise = signer.signTransaction(transaction);
+          const signTimeout = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("Sign timeout after 60s")), 60000)
+          );
+          const signedTx = await Promise.race([signPromise, signTimeout]);
+          
+          console.log("Signed successfully. Calling network...");
+          const callPromise = signer.call(signedTx as any);
+          const callTimeout = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("Call timeout after 60s")), 60000)
+          );
+          txResponse = await Promise.race([callPromise, callTimeout]);
+        } else {
+          throw error;
+        }
+      }
 
       const txId = txResponse.transactionId.toString();
       console.log("Transaction executed:", txId);
