@@ -1,0 +1,76 @@
+{
+  "name": "hedera-trading-wallet-agent-backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Guarded Hedera trading wallet agent backend for the Hedera AI Agent bounty.",
+  "workspaces": [
+    "apps/web"
+  ],
+  "scripts": {
+    "dev": "tsx apps/api/src/server.ts",
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test tests/**/*.test.ts",
+    "db:init": "tsx apps/api/src/db/init.ts",
+    "web:dev": "npm run dev --workspace apps/web",
+    "web:build": "npm run build --workspace apps/web"
+  },
+  "dependencies": {
+    "@bonzofinancelabs/hak-bonzo-plugin": "^1.0.1",
+    "@buidlerlabs/hak-memejob-plugin": "^1.1.0",
+    "@fastify/cors": "^11.2.0",
+    "@fastify/rate-limit": "^10.3.0",
+    "@fastify/swagger": "^9.5.1",
+    "@hashgraph/hedera-agent-kit": "^4.0.0",
+    "@hashgraph/hedera-agent-kit-langchain": "^1.0.0",
+    "@hashgraph/hedera-wallet-connect": "^2.1.3",
+    "@hiero-ledger/proto": "^2.25.0",
+    "@hiero-ledger/sdk": "^2.84.0",
+    "@langchain/openai": "^1.4.7",
+    "@reown/appkit": "^1.8.20",
+    "@reown/appkit-controllers": "^1.8.20",
+    "@reown/walletkit": "^1.2.8",
+    "@types/react": "^19.2.15",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.2",
+    "@walletconnect/jsonrpc-types": "^1.0.4",
+    "@walletconnect/modal": "^2.7.0",
+    "@walletconnect/sign-client": "^2.23.9",
+    "@walletconnect/types": "^2.23.9",
+    "@walletconnect/utils": "^2.23.9",
+    "better-sqlite3": "^11.10.0",
+    "chainlink-pricefeed-plugin": "^1.0.5",
+    "coincap-hedera-plugin": "^1.0.5",
+    "dotenv": "^16.5.0",
+    "drizzle-orm": "^0.45.2",
+    "ethers": "^6.16.0",
+    "fastify": "^5.3.3",
+    "hak-mppx-hedera-plugin": "^1.2.0",
+    "hak-pyth-plugin": "^0.2.1",
+    "hak-saucerswap-plugin": "^2.1.1",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "saucer-swap-plugin": "^0.2.0",
+    "vite": "^8.0.14",
+    "zod": "^3.25.0"
+  },
+  "overrides": {
+    "@langchain/core": "^1.1.48",
+    "bn.js": "^5.2.3",
+    "elliptic": "^6.6.1",
+    "langsmith": "^0.7.3",
+    "protobufjs": "^8.4.2",
+    "uuid": "^11.1.1",
+    "ws": "^8.21.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^22.15.0",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -1,0 +1,20 @@
+import { HederaAgentKit } from "@hashgraph/hedera-agent-kit";
+import * as plugins from "@hashgraph/hedera-agent-kit/plugins";
+import * as saucerSwapPlugin from "saucer-swap-plugin";
+import * as hakSaucerswapPlugin from "hak-saucerswap-plugin";
+import * as pythPlugin from "hak-pyth-plugin";
+import * as coinCapPlugin from "coincap-hedera-plugin";
+import * as chainlinkPlugin from "chainlink-pricefeed-plugin";
+import * as mppPlugin from "hak-mppx-hedera-plugin";
+import * as bonzoPlugin from "@bonzofinancelabs/hak-bonzo-plugin";
+import * as memejobPlugin from "@buidlerlabs/hak-memejob-plugin";
+
+console.log("Core Plugins keys:", Object.keys(plugins));
+console.log("SaucerSwap keys:", Object.keys(saucerSwapPlugin));
+console.log("Hak SaucerSwap keys:", Object.keys(hakSaucerswapPlugin));
+console.log("Pyth keys:", Object.keys(pythPlugin));
+console.log("CoinCap keys:", Object.keys(coinCapPlugin));
+console.log("Chainlink keys:", Object.keys(chainlinkPlugin));
+console.log("MPP keys:", Object.keys(mppPlugin));
+console.log("Bonzo keys:", Object.keys(bonzoPlugin));
+console.log("Memejob keys:", Object.keys(memejobPlugin));
