@@ -6,6 +6,7 @@ import { ZodError, type ZodSchema } from "zod";
 import {
   accountIdSchema,
   agentChatRequestSchema,
+  type PortfolioResponse,
   strategyEvaluateRequestSchema,
   tradeCompleteRequestSchema,
   tradeProposeRequestSchema,
@@ -24,7 +25,7 @@ import {
 import { QuoteService } from "../../../packages/trading/src/quoteService";
 import { TradingPolicyEngine, makeAuditId } from "../../../packages/trading/src/policies";
 import { SqliteTradingStore } from "../../../packages/trading/src/sqliteStore";
-import type { AuditEventRecord, TradeProposal, TradingStore } from "../../../packages/trading/src/types";
+import type { AuditEventRecord, TokenConfig, TradeHistoryRecord, TradeProposal, TradingStore } from "../../../packages/trading/src/types";
 
 export interface ApiDependencies {
   store: TradingStore;
@@ -98,7 +99,11 @@ export async function buildApp(overrides: Partial<ApiDependencies> = {}): Promis
 
   app.get("/api/portfolio/:accountId", async (request) => {
     const params = parse({ parse: (value: unknown) => ({ accountId: accountIdSchema.parse((value as { accountId: unknown }).accountId) }) }, request.params);
-    return await mirrorNode.getPortfolio(params.accountId);
+    const [portfolio, history] = await Promise.all([
+      mirrorNode.getPortfolio(params.accountId),
+      store.listTradeHistory(params.accountId, 100)
+    ]);
+    return enrichPortfolioWithAgentBalances(portfolio, config.policy.allowedTokens, history);
   });
 
   app.post("/api/agent/chat", async (request) => {
@@ -216,6 +221,23 @@ export async function buildApp(overrides: Partial<ApiDependencies> = {}): Promis
     return updated;
   });
 
+  app.get("/api/trades/history", async (request) => {
+    const query = request.query as { accountId?: string; limit?: string };
+    const accountId = query.accountId ? accountIdSchema.parse(query.accountId) : undefined;
+    const limit = Math.min(Number.parseInt(query.limit ?? "20", 10) || 20, 100);
+    const records = await store.listTradeHistory(accountId, limit);
+    const refreshed = await Promise.all(
+      records.map(async (record) => ({
+        ...record,
+        proposal: await refreshProposalStatus(store, mirrorNode, record.proposal)
+      }))
+    );
+
+    return {
+      history: refreshed.map(toTradeHistoryItem)
+    };
+  });
+
   app.get("/api/trades/:proposalId/status", async (request, reply) => {
     const params = request.params as { proposalId: string };
     const proposal = await store.getProposal(params.proposalId);
@@ -224,31 +246,7 @@ export async function buildApp(overrides: Partial<ApiDependencies> = {}): Promis
       return { error: "proposal_not_found" };
     }
 
-    if (proposal.status === "proposed" && new Date(proposal.expiresAt).getTime() <= Date.now()) {
-      return await store.updateProposal(proposal.id, { status: "expired" });
-    }
-
-    if (proposal.status === "submitted" && proposal.transactionId) {
-      const lookup = await mirrorNode.getTransactionStatus(proposal.transactionId);
-      if (lookup.status === "confirmed" || lookup.status === "failed") {
-        const patch: Partial<TradeProposal> = { status: lookup.status };
-        if (lookup.status === "failed" && lookup.result) {
-          patch.failureReason = lookup.result;
-        }
-        const updated = await store.updateProposal(proposal.id, patch);
-        await addAudit(store, {
-          type: lookup.status === "confirmed" ? "transaction_confirmed" : "transaction_failed",
-          accountId: proposal.accountId,
-          quoteId: proposal.quoteId,
-          proposalId: proposal.id,
-          message: lookup.status === "confirmed" ? "Transaction confirmed." : "Transaction failed.",
-          data: { result: lookup.result, transactionId: proposal.transactionId }
-        });
-        return updated;
-      }
-    }
-
-    return proposal;
+    return await refreshProposalStatus(store, mirrorNode, proposal);
   });
 
   app.post("/api/strategies/evaluate", async (request) => {
@@ -323,5 +321,119 @@ async function addAudit(
     ...(event.accountId ? { accountId: event.accountId } : {}),
     ...(event.quoteId ? { quoteId: event.quoteId } : {}),
     ...(event.proposalId ? { proposalId: event.proposalId } : {})
+  });
+}
+
+async function refreshProposalStatus(
+  store: TradingStore,
+  mirrorNode: MirrorNodeClient,
+  proposal: TradeProposal
+): Promise<TradeProposal> {
+  if (proposal.status === "proposed" && new Date(proposal.expiresAt).getTime() <= Date.now()) {
+    return await store.updateProposal(proposal.id, { status: "expired" }) ?? proposal;
+  }
+
+  if (proposal.status !== "submitted" || !proposal.transactionId) {
+    return proposal;
+  }
+
+  const lookup = await mirrorNode.getTransactionStatus(proposal.transactionId);
+  if (lookup.status !== "confirmed" && lookup.status !== "failed") {
+    return proposal;
+  }
+
+  const patch: Partial<TradeProposal> = { status: lookup.status };
+  if (lookup.status === "failed" && lookup.result) {
+    patch.failureReason = lookup.result;
+  }
+  const updated = await store.updateProposal(proposal.id, patch);
+  await addAudit(store, {
+    type: lookup.status === "confirmed" ? "transaction_confirmed" : "transaction_failed",
+    accountId: proposal.accountId,
+    quoteId: proposal.quoteId,
+    proposalId: proposal.id,
+    message: lookup.status === "confirmed" ? "Transaction confirmed." : "Transaction failed.",
+    data: { result: lookup.result, transactionId: proposal.transactionId }
+  });
+
+  return updated ?? proposal;
+}
+
+function toTradeHistoryItem(record: TradeHistoryRecord): Record<string, unknown> {
+  return {
+    proposalId: record.proposal.id,
+    quoteId: record.proposal.quoteId,
+    accountId: record.proposal.accountId,
+    recipientAccountId: record.proposal.recipientAccountId,
+    status: record.proposal.status,
+    tokenIn: record.quote?.tokenIn ?? "Unknown",
+    tokenOut: record.quote?.tokenOut ?? "Unknown",
+    amountIn: record.quote?.amountIn ?? "",
+    amountOut: record.quote?.amountOut ?? "",
+    slippageBps: record.quote?.slippageBps,
+    source: record.quote?.source,
+    quoteHash: record.proposal.quoteHash,
+    transactionId: record.proposal.transactionId,
+    failureReason: record.proposal.failureReason,
+    createdAt: record.proposal.createdAt,
+    expiresAt: record.proposal.expiresAt
+  };
+}
+
+function enrichPortfolioWithAgentBalances(
+  portfolio: PortfolioResponse,
+  allowedTokens: TokenConfig[],
+  history: TradeHistoryRecord[]
+): PortfolioResponse {
+  const existingTokens = new Map(portfolio.tokens.map((token) => [normalizeTokenKey(token.symbol, token.tokenId), token]));
+  const trackedBalances = new Map<string, number>();
+
+  for (const record of history) {
+    if (!record.quote || (record.proposal.status !== "confirmed" && record.proposal.status !== "submitted")) {
+      continue;
+    }
+
+    addTrackedBalance(trackedBalances, record.quote.tokenOut, Number(record.quote.amountOut));
+    addTrackedBalance(trackedBalances, record.quote.tokenIn, -Number(record.quote.amountIn));
+  }
+
+  const extraTokens = allowedTokens.flatMap((token) => {
+    if (token.isNativeHbar) return [];
+    const key = normalizeTokenKey(token.symbol, token.tokenId);
+    if (existingTokens.has(key)) return [];
+
+    const balance = trackedBalances.get(token.symbol) ?? trackedBalances.get(token.tokenId) ?? 0;
+    if (balance <= 0) return [];
+
+    return [{
+      tokenId: token.tokenId,
+      symbol: token.symbol,
+      name: "Agent-tracked holding",
+      balance: formatTrackedBalance(balance),
+      decimals: token.decimals,
+      balanceSource: "agent" as const
+    }];
+  });
+
+  return {
+    ...portfolio,
+    tokens: [...portfolio.tokens, ...extraTokens]
+  };
+}
+
+function addTrackedBalance(balances: Map<string, number>, tokenRef: string, delta: number): void {
+  if (!Number.isFinite(delta)) return;
+  balances.set(tokenRef, (balances.get(tokenRef) ?? 0) + delta);
+}
+
+function normalizeTokenKey(symbol: string, tokenId: string): string {
+  return `${symbol.toUpperCase()}:${tokenId}`;
+}
+
+function formatTrackedBalance(value: number): string {
+  if (!Number.isFinite(value)) return "0";
+  return value.toLocaleString("en-US", {
+    useGrouping: false,
+    maximumFractionDigits: 8
   });
 }

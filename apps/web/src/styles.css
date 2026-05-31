@@ -35,8 +35,9 @@
 html,
 body,
 #root {
-  min-height: 100%;
+  height: 100%;
   margin: 0;
+  overflow: hidden;
 }
 
 body {
@@ -57,12 +58,15 @@ button {
 }
 
 .app-shell {
-  min-height: 100vh;
+  height: 100vh;
+  min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .topbar {
+  flex: 0 0 auto;
   min-height: 76px;
   display: flex;
   align-items: center;
@@ -72,7 +76,7 @@ button {
   background: rgba(255, 255, 255, 0.84);
   border-bottom: 1px solid var(--line);
   backdrop-filter: blur(18px);
-  position: sticky;
+  position: relative;
   top: 0;
   z-index: 10;
 }
@@ -280,9 +284,12 @@ h2 {
 }
 
 .connect-view {
+  flex: 1;
+  min-height: 0;
   width: min(1240px, calc(100% - 40px));
   margin: 0 auto;
   padding: 34px 0 44px;
+  overflow-y: auto;
 }
 
 .landing-shell {
@@ -620,17 +627,26 @@ h2 {
   grid-template-columns: 286px minmax(420px, 1fr) 356px;
   gap: 18px;
   width: min(1500px, calc(100% - 32px));
-  min-height: calc(100vh - 76px);
+  height: auto;
+  min-height: 0;
   margin: 0 auto;
   padding: 18px 0;
+  overflow: hidden;
 }
 
 .wallet-column,
 .trade-column {
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 14px;
+  overflow: hidden;
+}
+
+.wallet-column {
+  overflow-y: auto;
+  padding-right: 2px;
 }
 
 .panel {
@@ -676,11 +692,19 @@ h2 {
 
 .token-list,
 .preset-list,
+.history-list,
 .audit-list,
 .action-stack {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.token-list,
+.preset-list {
+  max-height: 260px;
+  overflow-y: auto;
+  padding-right: 2px;
 }
 
 .token-row {
@@ -702,6 +726,13 @@ h2 {
   display: block;
 }
 
+.token-row strong {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
 .token-row span {
   margin-top: 3px;
   color: var(--muted);
@@ -714,6 +745,20 @@ h2 {
   font-style: normal;
   font-weight: 760;
   text-align: right;
+}
+
+.source-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 18px;
+  padding: 3px 6px;
+  border-radius: 999px;
+  background: var(--blue-soft);
+  color: var(--blue);
+  font-size: 0.62rem;
+  font-weight: 850;
+  line-height: 1;
+  text-transform: uppercase;
 }
 
 .preset-button {
@@ -746,6 +791,7 @@ h2 {
 
 .chat-panel {
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -872,9 +918,24 @@ h2 {
 }
 
 .trade-ticket {
+  flex: 1 1 360px;
+  min-height: 0;
+  max-height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   background:
     linear-gradient(145deg, rgba(32, 90, 143, 0.08), transparent 58%),
     var(--surface);
+}
+
+.trade-ticket > .panel-heading {
+  position: sticky;
+  top: -16px;
+  z-index: 2;
+  margin: -16px -16px 14px;
+  padding: 16px 16px 14px;
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(145deg, #f5faf7, #ffffff 68%);
 }
 
 .quote-empty,
@@ -1015,7 +1076,96 @@ h2 {
 
 .audit-panel {
   flex: 1;
-  min-height: 260px;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.history-list,
+.audit-list {
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.history-item {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.history-topline,
+.history-meta {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.history-topline strong {
+  min-width: 0;
+  color: var(--ink);
+  font-size: 0.92rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.history-status {
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-strong);
+  color: var(--ink-soft);
+  font-size: 0.68rem;
+  font-weight: 850;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.history-submitted,
+.history-confirmed {
+  border-color: rgba(8, 127, 91, 0.22);
+  background: var(--green-soft);
+  color: var(--green-dark);
+}
+
+.history-failed,
+.history-wallet_rejected,
+.history-expired {
+  border-color: rgba(180, 35, 24, 0.2);
+  background: var(--red-soft);
+  color: var(--red);
+}
+
+.history-meta {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.history-tx {
+  display: block;
+  margin-top: 9px;
+  padding: 8px;
+  border-radius: var(--radius);
+  background: var(--surface-strong);
+  color: var(--ink-soft);
+  font-family: "SFMono-Regular", "Roboto Mono", Consolas, monospace;
+  font-size: 0.76rem;
+  overflow-wrap: anywhere;
+}
+
+.history-error {
+  margin: 9px 0 0;
+  color: var(--red);
+  font-size: 0.82rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 .audit-item {
@@ -1102,10 +1252,28 @@ h2 {
     grid-column: 1 / -1;
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(280px, 0.8fr);
+    grid-auto-rows: minmax(0, 1fr);
+  }
+
+  .trade-ticket {
+    min-height: 320px;
   }
 }
 
 @media (max-width: 860px) {
+  html,
+  body,
+  #root {
+    height: 100%;
+    overflow: hidden;
+  }
+
+  .app-shell {
+    height: 100vh;
+    min-height: 0;
+    overflow: hidden;
+  }
+
   .topbar {
     align-items: flex-start;
     flex-direction: column;
@@ -1127,6 +1295,25 @@ h2 {
   .workspace,
   .trade-column {
     grid-template-columns: 1fr;
+  }
+
+  .workspace {
+    height: auto;
+    overflow-y: auto;
+  }
+
+  .wallet-column,
+  .trade-column {
+    overflow: visible;
+  }
+
+  .trade-ticket {
+    max-height: 520px;
+  }
+
+  .history-list,
+  .audit-list {
+    max-height: 420px;
   }
 
   .landing-shell {

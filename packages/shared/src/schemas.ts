@@ -37,7 +37,8 @@ export const portfolioTokenSchema = z.object({
   symbol: z.string(),
   name: z.string().optional(),
   balance: z.string(),
-  decimals: z.number().int().min(0).max(18)
+  decimals: z.number().int().min(0).max(18),
+  balanceSource: z.enum(["mirror", "agent"]).optional()
 });
 
 export const portfolioResponseSchema = z.object({
@@ -110,6 +111,25 @@ export const tradeProposeResponseSchema = z.object({
   quoteHash: z.string()
 });
 
+export const tradeHistoryItemSchema = z.object({
+  proposalId: z.string(),
+  quoteId: z.string(),
+  accountId: accountIdSchema,
+  recipientAccountId: accountIdSchema,
+  status: tradeStatusSchema,
+  tokenIn: z.string(),
+  tokenOut: z.string(),
+  amountIn: z.string(),
+  amountOut: z.string(),
+  slippageBps: z.number().int().optional(),
+  source: z.string().optional(),
+  quoteHash: z.string(),
+  transactionId: z.string().optional(),
+  failureReason: z.string().optional(),
+  createdAt: z.string(),
+  expiresAt: z.string()
+});
+
 export const tradeCompleteRequestSchema = z.object({
   transactionId: z.string().min(3).optional(),
   status: z.enum(["submitted", "wallet_rejected", "failed"]).default("submitted"),
@@ -142,6 +162,7 @@ export type TradeQuoteRequest = z.infer<typeof tradeQuoteRequestSchema>;
 export type TradeQuoteResponse = z.infer<typeof tradeQuoteResponseSchema>;
 export type TradeProposeRequest = z.infer<typeof tradeProposeRequestSchema>;
 export type TradeProposeResponse = z.infer<typeof tradeProposeResponseSchema>;
+export type TradeHistoryItem = z.infer<typeof tradeHistoryItemSchema>;
 export type StrategyEvaluateRequest = z.infer<typeof strategyEvaluateRequestSchema>;
 export type AuditEvent = z.infer<typeof auditEventSchema>;
 export type TradeStatus = z.infer<typeof tradeStatusSchema>;

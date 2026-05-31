@@ -24,7 +24,8 @@ export class MirrorNodeClient {
           symbol: metadata.symbol ?? token.token_id,
           name: metadata.name,
           balance: formatTokenBalance(token.balance, decimals),
-          decimals
+          decimals,
+          balanceSource: "mirror" as const
         };
       })
     );
@@ -44,7 +45,8 @@ export class MirrorNodeClient {
 
   async getTransactionStatus(transactionId: string): Promise<TransactionLookupResult> {
     try {
-      const result = await this.getJson<MirrorTransactions>(`/api/v1/transactions/${encodeURIComponent(transactionId)}`);
+      const mirrorTransactionId = toMirrorTransactionId(transactionId);
+      const result = await this.getJson<MirrorTransactions>(`/api/v1/transactions/${encodeURIComponent(mirrorTransactionId)}`);
       const first = result.transactions?.[0];
       if (!first) return { status: "submitted" };
       if (first.result === "SUCCESS") return { status: "confirmed", result: first.result };
@@ -132,4 +134,10 @@ function formatFixed(value: bigint, decimals: number): string {
   const fraction = value % scale;
   if (fraction === 0n || decimals === 0) return whole.toString();
   return `${whole.toString()}.${fraction.toString().padStart(decimals, "0").replace(/0+$/, "")}`;
+}
+
+function toMirrorTransactionId(transactionId: string): string {
+  const match = transactionId.match(/^(\d+\.\d+\.\d+)@(\d+)\.(\d+)$/);
+  if (!match) return transactionId;
+  return `${match[1]}-${match[2]}-${match[3]}`;
 }

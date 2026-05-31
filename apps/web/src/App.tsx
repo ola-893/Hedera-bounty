@@ -44,6 +44,7 @@ type PortfolioToken = {
   name?: string;
   balance: string;
   decimals: number;
+  balanceSource?: 'mirror' | 'agent';
 };
 
 type Portfolio = {
@@ -68,6 +69,25 @@ type AuditEvent = {
   proposalId?: string;
 };
 
+type SwapHistoryItem = {
+  proposalId: string;
+  quoteId: string;
+  accountId: string;
+  recipientAccountId: string;
+  status: string;
+  tokenIn: string;
+  tokenOut: string;
+  amountIn: string;
+  amountOut: string;
+  slippageBps?: number;
+  source?: string;
+  quoteHash: string;
+  transactionId?: string;
+  failureReason?: string;
+  createdAt: string;
+  expiresAt: string;
+};
+
 type Health = {
   ok: boolean;
   network: string;
@@ -87,6 +107,7 @@ const TRADE_PRESETS: TradePreset[] = [
   { label: 'HBAR to SAUCE', detail: '10 HBAR', tokenIn: 'HBAR', tokenOut: 'SAUCE', amountIn: '10' },
   { label: 'HBAR to XSAUCE', detail: '5 HBAR', tokenIn: 'HBAR', tokenOut: 'XSAUCE', amountIn: '5' },
   { label: 'SAUCE to HBAR', detail: '100 SAUCE', tokenIn: 'SAUCE', tokenOut: 'HBAR', amountIn: '100' },
+  { label: 'XSAUCE to HBAR', detail: '25 XSAUCE', tokenIn: 'XSAUCE', tokenOut: 'HBAR', amountIn: '25' },
 ];
 
 export default function App() {
@@ -98,6 +119,7 @@ export default function App() {
   const [currentProposal, setCurrentProposal] = useState<ProposalData | null>(null);
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
+  const [swapHistory, setSwapHistory] = useState<SwapHistoryItem[]>([]);
   const [health, setHealth] = useState<Health | null>(null);
   const [healthStatus, setHealthStatus] = useState<'checking' | 'ok' | 'error'>('checking');
   const [connectionError, setConnectionError] = useState<string | null>(null);
@@ -115,6 +137,34 @@ export default function App() {
     return 'Awaiting intent';
   }, [currentProposal, quoteAllowed, quoteBlocked]);
 
+  const quickQuotePresets = useMemo(() => {
+    const presets = [...TRADE_PRESETS];
+    const existingRoundTrips = new Set(
+      presets
+        .filter(preset => preset.tokenOut === 'HBAR')
+        .map(preset => preset.tokenIn.toUpperCase())
+    );
+
+    for (const token of portfolio?.tokens ?? []) {
+      const symbol = token.symbol.toUpperCase();
+      const balanceNumber = Number(token.balance);
+      if (symbol === 'HBAR' || existingRoundTrips.has(symbol) || !Number.isFinite(balanceNumber) || balanceNumber <= 0) {
+        continue;
+      }
+
+      presets.push({
+        label: `${token.symbol} to HBAR`,
+        detail: `${formatAmount(token.balance)} ${token.symbol}`,
+        tokenIn: token.symbol,
+        tokenOut: 'HBAR',
+        amountIn: token.balance
+      });
+      existingRoundTrips.add(symbol);
+    }
+
+    return presets;
+  }, [portfolio?.tokens]);
+
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
@@ -130,7 +180,7 @@ export default function App() {
     }
 
     void refreshPortfolio(accountId);
-    void refreshAudit();
+    void refreshActivity();
   }, [connected, accountId]);
 
   function addMessage(role: Message['role'], content: string) {
@@ -183,6 +233,40 @@ export default function App() {
     }
   }
 
+  async function refreshSwapHistory(nextAccountId = accountId) {
+    if (!nextAccountId) {
+      setSwapHistory([]);
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API}/api/trades/history?accountId=${encodeURIComponent(nextAccountId)}&limit=8`);
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data?.error || res.statusText);
+      }
+
+      setSwapHistory(data.history ?? []);
+    } catch {
+      setSwapHistory([]);
+    }
+  }
+
+  async function refreshActivity() {
+    await Promise.all([
+      refreshAudit(),
+      refreshSwapHistory()
+    ]);
+  }
+
+  async function refreshDashboard() {
+    await Promise.all([
+      accountId ? refreshPortfolio(accountId) : Promise.resolve(),
+      refreshActivity()
+    ]);
+  }
+
   async function handleConnect() {
     setLoading(true);
     setConnectionError(null);
@@ -203,6 +287,7 @@ export default function App() {
     setCurrentQuote(null);
     setCurrentProposal(null);
     setAuditEvents([]);
+    setSwapHistory([]);
     setConnectionError(null);
     addMessage('system', 'Wallet disconnected.');
   }
@@ -243,7 +328,7 @@ export default function App() {
       addMessage('agent', `Network error: ${getErrorMessage(err)}`);
     } finally {
       setLoading(false);
-      void refreshAudit();
+      void refreshActivity();
     }
   }
 
@@ -280,7 +365,7 @@ export default function App() {
     } catch (err) {
       addMessage('system', `Quote fetch error: ${getErrorMessage(err)}`);
     } finally {
-      void refreshAudit();
+      void refreshActivity();
     }
   }
 
@@ -321,7 +406,7 @@ export default function App() {
       addMessage('system', `Proposal error: ${getErrorMessage(err)}`);
     } finally {
       setLoading(false);
-      void refreshAudit();
+      void refreshActivity();
     }
   }
 
@@ -387,7 +472,7 @@ export default function App() {
       addMessage('system', `Completion error: ${getErrorMessage(err)}`);
     } finally {
       setLoading(false);
-      void refreshAudit();
+      void refreshActivity();
       if (accountId) void refreshPortfolio(accountId);
     }
   }
@@ -429,7 +514,7 @@ export default function App() {
       addMessage('system', `Status check error: ${getErrorMessage(err)}`);
     } finally {
       setLoading(false);
-      void refreshAudit();
+      void refreshActivity();
     }
   }
 
@@ -451,8 +536,8 @@ export default function App() {
           </div>
           <div className="network-badge">{health?.network ?? NETWORK}</div>
           {connected && (
-            <button className="btn btn-secondary btn-compact" onClick={refreshAudit}>
-              Refresh audit
+            <button className="btn btn-secondary btn-compact" onClick={() => void refreshDashboard()}>
+              Refresh activity
             </button>
           )}
         </div>
@@ -566,10 +651,13 @@ export default function App() {
                 )}
               </div>
               <div className="token-list">
-                {(portfolio?.tokens ?? []).slice(0, 5).map(token => (
+                {(portfolio?.tokens ?? []).map(token => (
                   <div className="token-row" key={token.tokenId}>
                     <div>
-                      <strong>{token.symbol}</strong>
+                      <strong>
+                        {token.symbol}
+                        {token.balanceSource === 'agent' && <span className="source-chip">Tracked</span>}
+                      </strong>
                       <span>{token.name || token.tokenId}</span>
                     </div>
                     <em>{formatAmount(token.balance)}</em>
@@ -586,7 +674,7 @@ export default function App() {
                 <p className="eyebrow">Quick quotes</p>
               </div>
               <div className="preset-list">
-                {TRADE_PRESETS.map(preset => (
+                {quickQuotePresets.map(preset => (
                   <button
                     className="preset-button"
                     key={`${preset.tokenIn}-${preset.tokenOut}-${preset.amountIn}`}
@@ -745,6 +833,38 @@ export default function App() {
 
             <section className="panel audit-panel">
               <div className="panel-heading">
+                <p className="eyebrow">Swap history</p>
+                <button className="icon-button" onClick={() => void refreshSwapHistory()} aria-label="Refresh swap history" title="Refresh">
+                  ↻
+                </button>
+              </div>
+              <div className="history-list">
+                {swapHistory.map(item => (
+                  <div className="history-item" key={item.proposalId}>
+                    <div className="history-topline">
+                      <strong>{formatAmount(item.amountIn)} {item.tokenIn} to {formatAmount(item.amountOut)} {item.tokenOut}</strong>
+                      <span className={`history-status history-${item.status}`}>{formatStatus(item.status)}</span>
+                    </div>
+                    <div className="history-meta">
+                      <time>{formatDateTime(item.createdAt)}</time>
+                      <span>{item.source ?? 'quote'}</span>
+                    </div>
+                    {item.transactionId && (
+                      <code className="history-tx">Tx {shortenTransactionId(item.transactionId)}</code>
+                    )}
+                    {item.failureReason && (
+                      <p className="history-error">{item.failureReason}</p>
+                    )}
+                  </div>
+                ))}
+                {!swapHistory.length && (
+                  <div className="empty-state">Completed wallet actions will appear here.</div>
+                )}
+              </div>
+            </section>
+
+            <section className="panel audit-panel">
+              <div className="panel-heading">
                 <p className="eyebrow">Audit trail</p>
                 <button className="icon-button" onClick={refreshAudit} aria-label="Refresh audit trail" title="Refresh">
                   ↻
@@ -821,4 +941,13 @@ function formatDateTime(value: string): string {
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+function formatStatus(value: string): string {
+  return value.replace(/_/g, ' ');
+}
+
+function shortenTransactionId(value: string): string {
+  if (value.length <= 24) return value;
+  return `${value.slice(0, 10)}...${value.slice(-10)}`;
 }

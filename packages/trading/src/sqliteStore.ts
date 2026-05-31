@@ -1,7 +1,7 @@
 import { dirname } from "node:path";
 import { mkdirSync } from "node:fs";
 import Database from "better-sqlite3";
-import type { AuditEventRecord, TradeProposal, TradeQuote, TradingStore } from "./types";
+import type { AuditEventRecord, TradeHistoryRecord, TradeProposal, TradeQuote, TradingStore } from "./types";
 import type { Client } from "@hiero-ledger/sdk";
 import { submitHcsMessage } from "../../hedera/src/hcs";
 
@@ -104,6 +104,27 @@ export class SqliteTradingStore implements TradingStore {
     const updated = { ...existing, ...patch };
     await this.saveProposal(updated);
     return updated;
+  }
+
+  async listTradeHistory(accountId: string | undefined, limit: number): Promise<TradeHistoryRecord[]> {
+    const rows = this.db
+      .prepare(`
+        SELECT p.payload AS proposal_payload, q.payload AS quote_payload
+        FROM proposals p
+        LEFT JOIN quotes q ON q.id = p.quote_id
+        WHERE (? IS NULL OR p.account_id = ?)
+        ORDER BY p.created_at DESC
+        LIMIT ?
+      `)
+      .all(accountId ?? null, accountId ?? null, limit) as Array<{
+        proposal_payload: string;
+        quote_payload: string | null;
+      }>;
+
+    return rows.map((row) => ({
+      proposal: JSON.parse(row.proposal_payload) as TradeProposal,
+      ...(row.quote_payload ? { quote: JSON.parse(row.quote_payload) as TradeQuote } : {})
+    }));
   }
 
   async addAuditEvent(event: AuditEventRecord): Promise<void> {

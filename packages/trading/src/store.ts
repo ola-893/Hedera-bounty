@@ -1,4 +1,4 @@
-import type { AuditEventRecord, TradeProposal, TradeQuote, TradingStore } from "./types";
+import type { AuditEventRecord, TradeHistoryRecord, TradeProposal, TradeQuote, TradingStore } from "./types";
 
 export class InMemoryTradingStore implements TradingStore {
   private readonly quotes = new Map<string, TradeQuote>();
@@ -27,6 +27,20 @@ export class InMemoryTradingStore implements TradingStore {
     const updated = { ...existing, ...patch };
     this.proposals.set(id, updated);
     return updated;
+  }
+
+  async listTradeHistory(accountId: string | undefined, limit: number): Promise<TradeHistoryRecord[]> {
+    return [...this.proposals.values()]
+      .filter((proposal) => !accountId || proposal.accountId === accountId)
+      .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())
+      .slice(0, limit)
+      .map((proposal) => {
+        const quote = this.quotes.get(proposal.quoteId);
+        return {
+          proposal,
+          ...(quote ? { quote } : {})
+        };
+      });
   }
 
   async addAuditEvent(event: AuditEventRecord): Promise<void> {

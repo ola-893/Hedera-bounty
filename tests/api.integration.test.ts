@@ -188,6 +188,127 @@ test("submitted proposal status can move to confirmed through transaction lookup
   await app.close();
 });
 
+test("trade history returns the submitted swap with quote details", async () => {
+  const config = await createApiConfig({
+    HEDERA_NETWORK: "testnet",
+    ENABLE_MAINNET: "false",
+    DEMO_TRANSACTION_BYTES: "true"
+  } as NodeJS.ProcessEnv);
+  const policyEngine = new TradingPolicyEngine(config.policy);
+  const quoteService = new QuoteService(policyEngine, new DemoSaucerSwapQuoteProvider());
+  const proposalBuilder = new ProposalBuilder(policyEngine, new DemoSwapTransactionBuilder());
+  const app = await buildApp({
+    config,
+    policyEngine,
+    quoteService,
+    proposalBuilder,
+    store: new InMemoryTradingStore(),
+    mirrorNode: new FakeMirrorNodeClient()
+  });
+
+  const quote = (await app.inject({
+    method: "POST",
+    url: "/api/trades/quote",
+    payload: {
+      accountId: "0.0.1234",
+      tokenIn: "HBAR",
+      tokenOut: "SAUCE",
+      amountIn: "2",
+      slippageBps: 100
+    }
+  })).json();
+
+  const proposal = (await app.inject({
+    method: "POST",
+    url: "/api/trades/propose",
+    payload: { quoteId: quote.id, accountId: "0.0.1234" }
+  })).json();
+
+  await app.inject({
+    method: "POST",
+    url: `/api/trades/${proposal.proposalId}/complete`,
+    payload: {
+      status: "submitted",
+      transactionId: "0.0.1234@1770000000.000000001"
+    }
+  });
+
+  const historyResponse = await app.inject({
+    method: "GET",
+    url: "/api/trades/history?accountId=0.0.1234"
+  });
+
+  assert.equal(historyResponse.statusCode, 200);
+  const [historyItem] = historyResponse.json().history;
+  assert.equal(historyItem.proposalId, proposal.proposalId);
+  assert.equal(historyItem.tokenIn, "HBAR");
+  assert.equal(historyItem.tokenOut, "SAUCE");
+  assert.equal(historyItem.amountIn, "2");
+  assert.equal(historyItem.transactionId, "0.0.1234@1770000000.000000001");
+  assert.equal(historyItem.status, "confirmed");
+
+  await app.close();
+});
+
+test("portfolio includes agent-tracked output tokens when mirror balances are not present yet", async () => {
+  const config = await createApiConfig({
+    HEDERA_NETWORK: "testnet",
+    ENABLE_MAINNET: "false",
+    DEMO_TRANSACTION_BYTES: "true"
+  } as NodeJS.ProcessEnv);
+  const policyEngine = new TradingPolicyEngine(config.policy);
+  const quoteService = new QuoteService(policyEngine, new DemoSaucerSwapQuoteProvider());
+  const proposalBuilder = new ProposalBuilder(policyEngine, new DemoSwapTransactionBuilder());
+  const app = await buildApp({
+    config,
+    policyEngine,
+    quoteService,
+    proposalBuilder,
+    store: new InMemoryTradingStore(),
+    mirrorNode: new FakeMirrorNodeClient()
+  });
+
+  const quote = (await app.inject({
+    method: "POST",
+    url: "/api/trades/quote",
+    payload: {
+      accountId: "0.0.1234",
+      tokenIn: "HBAR",
+      tokenOut: "XSAUCE",
+      amountIn: "5",
+      slippageBps: 100
+    }
+  })).json();
+
+  const proposal = (await app.inject({
+    method: "POST",
+    url: "/api/trades/propose",
+    payload: { quoteId: quote.id, accountId: "0.0.1234" }
+  })).json();
+
+  await app.inject({
+    method: "POST",
+    url: `/api/trades/${proposal.proposalId}/complete`,
+    payload: {
+      status: "submitted",
+      transactionId: "0.0.1234@1770000000.000000001"
+    }
+  });
+
+  const portfolioResponse = await app.inject({
+    method: "GET",
+    url: "/api/portfolio/0.0.1234"
+  });
+
+  assert.equal(portfolioResponse.statusCode, 200);
+  const xsauce = portfolioResponse.json().tokens.find((token: { symbol: string }) => token.symbol === "XSAUCE");
+  assert.ok(xsauce);
+  assert.equal(xsauce.balance, "63");
+  assert.equal(xsauce.balanceSource, "agent");
+
+  await app.close();
+});
+
 class FakeMirrorNodeClient extends MirrorNodeClient {
   constructor() {
     super("http://mirror.test");

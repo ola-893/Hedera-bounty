@@ -77,12 +77,18 @@ export interface AuditEventRecord {
   data: Record<string, unknown>;
 }
 
+export interface TradeHistoryRecord {
+  proposal: TradeProposal;
+  quote?: TradeQuote;
+}
+
 export interface TradingStore {
   saveQuote(quote: TradeQuote): Promise<void>;
   getQuote(id: string): Promise<TradeQuote | undefined>;
   saveProposal(proposal: TradeProposal): Promise<void>;
   getProposal(id: string): Promise<TradeProposal | undefined>;
   updateProposal(id: string, patch: Partial<TradeProposal>): Promise<TradeProposal | undefined>;
+  listTradeHistory(accountId: string | undefined, limit: number): Promise<TradeHistoryRecord[]>;
   addAuditEvent(event: AuditEventRecord): Promise<void>;
   listAuditEvents(limit: number): Promise<AuditEventRecord[]>;
 }
