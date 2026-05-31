@@ -153,7 +153,21 @@ export const openWalletConnectModal = async () => {
       return;
     }
 
-    await dappConnector.openModal(undefined, true);
+    // Timeout to avoid silent hang when the relay is unreachable
+    const modalPromise = dappConnector.openModal(undefined, true);
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(
+        () =>
+          reject(
+            new Error(
+              "Connection timed out — relay.walletconnect.com may be unreachable. Check VPN, firewall, or DNS settings."
+            )
+          ),
+        15_000
+      )
+    );
+
+    await Promise.race([modalPromise, timeoutPromise]);
 
     if (!getWalletConnectSigner()) {
       throw new Error(
