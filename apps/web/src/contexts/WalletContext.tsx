@@ -1,8 +1,12 @@
-import { createContext, useContext, useState, useCallback } from "react";
+import { createContext, useContext, useState, useCallback, useEffect, useMemo } from "react";
 import type { ReactNode } from "react";
 import { AccountId, TokenId } from "@hiero-ledger/sdk";
-import { dappConnector } from "../services/wallets/walletconnect/walletConnectClient";
-import { openWalletConnectModal } from "../services/wallets/walletconnect/walletConnectClient";
+import {
+  dappConnector,
+  getWalletConnectSigner,
+  initializeWalletConnect,
+  openWalletConnectModal,
+} from "../services/wallets/walletconnect/walletConnectClient";
 import { MirrorNodeClient } from "../services/wallets/mirrorNodeClient";
 import { appConfig } from "../config";
 
@@ -28,28 +32,51 @@ export const WalletProvider = ({ children }: { children: ReactNode }) => {
   const [balance, setBalance] = useState<string | null>(null);
   const [network] = useState("testnet");
 
-  const mirrorNodeClient = new MirrorNodeClient(appConfig.networks.testnet);
+  const mirrorNodeClient = useMemo(
+    () => new MirrorNodeClient(appConfig.networks.testnet),
+    []
+  );
+
+  const syncConnectedSigner = useCallback(async () => {
+    const signer = getWalletConnectSigner();
+    if (!signer) return false;
+
+    const accountId = signer.getAccountId().toString();
+    setAddress(accountId);
+    setConnected(true);
+
+    const accountInfo = await mirrorNodeClient.getAccountInfo(
+      AccountId.fromString(accountId)
+    );
+    const hbarBalance = (accountInfo.balance.balance / 100000000).toFixed(2);
+    setBalance(hbarBalance);
+
+    return true;
+  }, [mirrorNodeClient]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    initializeWalletConnect()
+      .then(async () => {
+        if (cancelled) return;
+        await syncConnectedSigner();
+      })
+      .catch((error) => {
+        console.error("Failed to restore WalletConnect session:", error);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [syncConnectedSigner]);
 
   const connect = useCallback(async () => {
     try {
       await openWalletConnectModal();
 
-      // Get the connected account
-      const signer = dappConnector.signers[0];
-      if (signer) {
-        const accountId = signer.getAccountId().toString();
-        setAddress(accountId);
-        setConnected(true);
-
-        // Fetch initial balance
-        const accountInfo = await mirrorNodeClient.getAccountInfo(
-          AccountId.fromString(accountId)
-        );
-        const hbarBalance = (accountInfo.balance.balance / 100000000).toFixed(
-          2
-        );
-        setBalance(hbarBalance);
-      } else {
+      const synced = await syncConnectedSigner();
+      if (!synced) {
         throw new Error(
           "No HashPack testnet signer was returned. Check that HashPack is on testnet and approve the WalletConnect session."
         );
@@ -61,7 +88,7 @@ export const WalletProvider = ({ children }: { children: ReactNode }) => {
       setBalance(null);
       throw error;
     }
-  }, [mirrorNodeClient]);
+  }, [syncConnectedSigner]);
 
   const disconnect = useCallback(() => {
     dappConnector.disconnectAll();

@@ -96,7 +96,7 @@ function signatureToHex(signature: any): string {
 // Ensure WalletConnect initializes only once
 let walletConnectInitPromise: Promise<void> | undefined = undefined;
 
-const initializeWalletConnect = async () => {
+export const initializeWalletConnect = async () => {
   if (!walletConnectProjectId) {
     throw new Error(
       "Missing VITE_WALLETCONNECT_PROJECT_ID. Add your WalletConnect/Reown project ID to the root .env file and restart the frontend."
@@ -111,6 +111,10 @@ const initializeWalletConnect = async () => {
 
   try {
     await walletConnectInitPromise;
+    if (!dappConnector.walletConnectClient) {
+      walletConnectInitPromise = undefined;
+      throw new Error("WalletConnect could not initialize. Check your Project ID and try again.");
+    }
     console.log("✅ WalletConnect initialized successfully");
   } catch (error) {
     console.error("❌ WalletConnect initialization failed:", error);
@@ -120,13 +124,38 @@ const initializeWalletConnect = async () => {
   }
 };
 
+export const getWalletConnectSigner = () => dappConnector.signers[0] ?? null;
+
+const getWalletConnectErrorMessage = (error: unknown) => {
+  const message = error instanceof Error ? error.message : String(error);
+
+  if (
+    message.includes("Failed to publish custom payload") ||
+    message.includes("WebSocket") ||
+    message.includes("relay.walletconnect.com")
+  ) {
+    return (
+      "WalletConnect could not reach the relay, so the pairing modal could not be created. " +
+      "Check your internet connection, VPN/ad blocker, and that relay.walletconnect.com is allowed, then try again."
+    );
+  }
+
+  return message;
+};
+
 // Open WalletConnect modal for pairing
 export const openWalletConnectModal = async () => {
   try {
     await initializeWalletConnect();
+
+    if (getWalletConnectSigner()) {
+      refreshEvent.emit("sync");
+      return;
+    }
+
     await dappConnector.openModal(undefined, true);
 
-    if (!dappConnector.signers.length) {
+    if (!getWalletConnectSigner()) {
       throw new Error(
         "HashPack did not return a Hedera testnet account. Make sure HashPack is set to testnet and approve the WalletConnect request."
       );
@@ -135,7 +164,7 @@ export const openWalletConnectModal = async () => {
     refreshEvent.emit("sync");
   } catch (error) {
     console.error("Failed to open WalletConnect modal:", error);
-    throw error;
+    throw new Error(getWalletConnectErrorMessage(error));
   }
 };
 
