@@ -46,16 +46,21 @@ Send the user's natural language input to the agent.
 **Response:**
 ```json
 {
-  "response": "I can help with that. Are you ready to proceed with the swap?",
-  "action": "trade",
-  "params": {
+  "response": "I found a trade intent: swap 50 HBAR to SAUCE...",
+  "action": {
+    "type": "quote_request",
     "tokenIn": "HBAR",
     "tokenOut": "SAUCE",
-    "amountIn": "50"
-  }
+    "amountIn": "50",
+    "confidence": 0.9
+  },
+  "safetyNotes": [
+    "I can prepare quotes and proposals, but wallet approval is required before funds move.",
+    "This is not financial advice."
+  ]
 }
 ```
-*Frontend Action:* If `action === "trade"`, proceed immediately to step 3 using the returned `params`.
+*Frontend Action:* If `action?.type === "quote_request"`, proceed to step 3 using the fields on `action`.
 
 ### 3. Requesting a Quote
 Fetch a price quote for the parsed trade. This applies backend safety policies (like max slippage and allowed tokens).
@@ -77,11 +82,14 @@ Fetch a price quote for the parsed trade. This applies backend safety policies (
   "id": "quote_123456...", // Save this ID
   "status": "quoted",      // Or "blocked" if it violates safety policies
   "amountOut": "4500.5",
-  "priceImpact": 0.05,
+  "priceImpactBps": 5,
+  "source": "saucerswap-plugin-demo",
+  "quoteHash": "abc123...",
+  "expiresAt": "2026-05-31T12:00:00.000Z",
   "policy": { "allowed": true }
 }
 ```
-*Frontend Action:* Display the `amountOut` and `priceImpact` to the user and ask for confirmation.
+*Frontend Action:* Display the `amountOut`, `priceImpactBps`, quote source, and policy verdict to the user and ask for confirmation.
 
 ### 4. Creating a Proposal (Building the Transaction)
 Once the user clicks "Confirm", ask the backend to build the raw Hedera transaction.
@@ -106,9 +114,10 @@ Once the user clicks "Confirm", ask the backend to build the raw Hedera transact
 ### 5. Signing via Wallet (Crucial Step)
 The frontend must decode the `transactionBytes` and pass it to the user's wallet provider.
 
-**Example using `@hashgraph/sdk` and `HashConnect`:**
+**Example using `@hiero-ledger/sdk` and the current Hedera WalletConnect package:**
 ```javascript
-import { Transaction } from "@hashgraph/sdk";
+import { AccountId, Transaction } from "@hiero-ledger/sdk";
+import { DAppConnector } from "@hashgraph/hedera-wallet-connect";
 
 // 1. Decode the base64 string from the backend
 const txBytes = Buffer.from(proposal.transactionBytes, 'base64');
@@ -116,21 +125,18 @@ const txBytes = Buffer.from(proposal.transactionBytes, 'base64');
 // 2. Deserialize into a Hedera Transaction object
 const transaction = Transaction.fromBytes(txBytes);
 
-// 3. Send to wallet for signing and execution
-const result = await hashConnect.sendTransaction(
-  topic, 
-  {
-    topic: topic,
-    byteArray: transaction.toBytes(),
-    metadata: {
-      accountToSign: "0.0.1234",
-      returnTransaction: false // Set true if you want to submit it yourself
-    }
-  }
-);
+// 3. Send to wallet for signing/execution through your WalletConnect signer.
+// The app implementation in apps/web uses executeWithSigner and validates receipt status.
+const signer = dAppConnector.getSigner(AccountId.fromString(accountId));
+const response = await transaction.executeWithSigner(signer);
+const receipt = await response.getReceiptWithSigner(signer);
+
+if (receipt.status.toString() !== "SUCCESS") {
+  throw new Error(`Network receipt status was ${receipt.status.toString()}`);
+}
 
 // Get the resulting transaction ID
-const transactionId = result.response.transactionId;
+const transactionId = response.transactionId.toString();
 ```
 
 ### 6. Recording Completion
@@ -145,6 +151,7 @@ Inform the backend that the user signed the transaction. This updates the backen
 }
 ```
 *(Note: If the user rejects the wallet popup, send `"status": "wallet_rejected"` instead).*
+If the wallet submits but the network receipt fails, send `"status": "failed"` with `failureReason` and the `transactionId` when available.
 
 ### 7. Checking Final Status
 You can optionally poll this endpoint while waiting for the network to reach consensus.
@@ -164,4 +171,4 @@ Returns an array of events (quotes, blocks, approvals, submissions) that corresp
 
 - **Blocked Quotes:** If a user tries to trade a token not allowed by the policy, or exceeds demo limits, the Quote endpoint will return `status: "blocked"`. The frontend should display a polite error message to the user.
 - **Expired Quotes:** Quotes have a TTL (default 60 seconds). If the user takes too long to sign, the backend may reject the completion.
-- **Demo Mode:** If the `.env` has `DEMO_TRANSACTION_BYTES=true`, the backend will return a dummy `CryptoTransfer` transaction for safe UI testing without interacting with the real SaucerSwap contracts.
+- **Demo Mode:** If the `.env` has `DEMO_TRANSACTION_BYTES=true`, or the quote source is demo/fallback, the backend returns a safe Hedera demo transaction instead of a SaucerSwap router contract call. When `HCS_AUDIT_TOPIC_ID` is configured, that demo transaction submits a small approval message to HCS.

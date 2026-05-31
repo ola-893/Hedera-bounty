@@ -5,6 +5,8 @@
 ```bash
 cp .env.example .env
 # Fill in HEDERA_OPERATOR_ACCOUNT_ID and HEDERA_OPERATOR_PRIVATE_KEY in .env
+# Keep DEMO_TRANSACTION_BYTES=true for safe demos. Demo/fallback quotes sign a
+# safe Hedera demo transaction instead of executing the SaucerSwap router.
 npm run db:init
 npm run dev
 ```

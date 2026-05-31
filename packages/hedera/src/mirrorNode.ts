@@ -10,14 +10,14 @@ export class MirrorNodeClient {
 
   async getPortfolio(accountId: string): Promise<PortfolioResponse> {
     const [account, tokens, transactions] = await Promise.all([
-      this.getJson<MirrorAccount>(`/api/v1/accounts/${accountId}`),
-      this.getJson<MirrorAccountTokens>(`/api/v1/accounts/${accountId}/tokens?limit=100`),
-      this.getJson<MirrorTransactions>(`/api/v1/accounts/${accountId}/transactions?limit=10&order=desc`)
+      this.safeGetJson<MirrorAccount>(`/api/v1/accounts/${accountId}`, {}),
+      this.safeGetJson<MirrorAccountTokens>(`/api/v1/accounts/${accountId}/tokens?limit=100`, { tokens: [] }),
+      this.safeGetJson<MirrorTransactions>(`/api/v1/accounts/${accountId}/transactions?limit=10&order=desc`, { transactions: [] })
     ]);
 
     const tokenRows = await Promise.all(
       (tokens.tokens ?? []).map(async (token) => {
-        const metadata = await this.getJson<MirrorToken>(`/api/v1/tokens/${token.token_id}`);
+        const metadata = await this.safeGetJson<MirrorToken>(`/api/v1/tokens/${token.token_id}`, {});
         const decimals = Number(metadata.decimals ?? token.decimals ?? 0);
         return {
           tokenId: token.token_id,
@@ -77,6 +77,15 @@ export class MirrorNodeClient {
       throw new Error(`Mirror Node request failed: ${response.status} ${await response.text()}`);
     }
     return await response.json() as T;
+  }
+
+  private async safeGetJson<T>(path: string, fallback: T): Promise<T> {
+    try {
+      return await this.getJson<T>(path);
+    } catch (error) {
+      console.warn(`Mirror Node request failed for ${path}:`, error);
+      return fallback;
+    }
   }
 }
 

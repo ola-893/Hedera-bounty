@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { ContractId, AccountId } from "@hashgraph/sdk";
-import { TokenId } from "@hashgraph/sdk";
+import { ContractId, AccountId } from "@hiero-ledger/sdk";
+import { TokenId } from "@hiero-ledger/sdk";
 import { ethers } from "ethers";
 import { useContext, useEffect } from "react";
 import { appConfig } from "../../../config";

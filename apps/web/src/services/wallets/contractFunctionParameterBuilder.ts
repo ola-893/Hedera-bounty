@@ -1,7 +1,7 @@
 /* contractFunctionParameterBuilder.ts */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { ContractFunctionParameters } from "@hashgraph/sdk";
+import { ContractFunctionParameters } from "@hiero-ledger/sdk";
 
 export interface ContractFunctionParameterBuilderParam {
   type: string;

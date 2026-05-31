@@ -16,7 +16,11 @@ import { MirrorNodeClient } from "../../../packages/hedera/src/mirrorNode";
 import { SaucerSwapQuoteProvider } from "../../../packages/hedera/src/saucerswapQuoteProvider";
 import { HederaSwapTransactionBuilder } from "../../../packages/hedera/src/swapTransactionBuilder";
 import { createApiConfig } from "./config";
-import { DemoSwapTransactionBuilder, ProposalBuilder } from "../../../packages/trading/src/proposals";
+import {
+  DemoSwapTransactionBuilder,
+  ProposalBuilder,
+  SourceAwareSwapTransactionBuilder
+} from "../../../packages/trading/src/proposals";
 import { QuoteService } from "../../../packages/trading/src/quoteService";
 import { TradingPolicyEngine, makeAuditId } from "../../../packages/trading/src/policies";
 import { SqliteTradingStore } from "../../../packages/trading/src/sqliteStore";
@@ -45,9 +49,11 @@ export async function buildApp(overrides: Partial<ApiDependencies> = {}): Promis
     poolFee: config.poolFee
   });
   const quoteService = overrides.quoteService ?? new QuoteService(policyEngine, quoteProvider);
-  const transactionBuilder = config.demoTransactionBytes
-    ? new DemoSwapTransactionBuilder()
-    : new HederaSwapTransactionBuilder(config.hedera);
+  const transactionBuilder = new SourceAwareSwapTransactionBuilder(
+    new DemoSwapTransactionBuilder(config.hedera.network, config.hcsAuditTopicId),
+    new HederaSwapTransactionBuilder(config.hedera),
+    config.demoTransactionBytes
+  );
   const proposalBuilder = overrides.proposalBuilder ?? new ProposalBuilder(policyEngine, transactionBuilder);
 
   const app = Fastify({ logger: true });
@@ -177,20 +183,34 @@ export async function buildApp(overrides: Partial<ApiDependencies> = {}): Promis
       return { error: "proposal_not_found" };
     }
 
-    const status = body.status === "wallet_rejected" ? "wallet_rejected" : "submitted";
+    const status = body.status ?? "submitted";
     const patch: Partial<TradeProposal> = { status };
     if (body.transactionId) {
       patch.transactionId = body.transactionId;
     }
+    if (body.failureReason) {
+      patch.failureReason = body.failureReason;
+    }
     const updated = await store.updateProposal(proposal.id, patch);
 
+    const auditType = status === "wallet_rejected"
+      ? "wallet_rejected"
+      : status === "failed"
+        ? "transaction_failed"
+        : "transaction_submitted";
+    const auditMessage = status === "wallet_rejected"
+      ? "Wallet rejected proposal."
+      : status === "failed"
+        ? "Wallet execution failed."
+        : "Wallet submitted transaction.";
+
     await addAudit(store, {
-      type: status === "wallet_rejected" ? "wallet_rejected" : "transaction_submitted",
+      type: auditType,
       accountId: proposal.accountId,
       quoteId: proposal.quoteId,
       proposalId: proposal.id,
-      message: status === "wallet_rejected" ? "Wallet rejected proposal." : "Wallet submitted transaction.",
-      data: { transactionId: body.transactionId }
+      message: auditMessage,
+      data: { transactionId: body.transactionId, failureReason: body.failureReason }
     });
 
     return updated;

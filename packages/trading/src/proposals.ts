@@ -5,15 +5,58 @@ export interface SwapTransactionBuilder {
   buildSwapTransactionBytes(quote: TradeQuote, recipientAccountId: string): Promise<string>;
 }
 
+export class SourceAwareSwapTransactionBuilder implements SwapTransactionBuilder {
+  constructor(
+    private readonly demoBuilder: SwapTransactionBuilder,
+    private readonly liveBuilder: SwapTransactionBuilder,
+    private readonly forceDemo = false
+  ) {}
+
+  async buildSwapTransactionBytes(quote: TradeQuote, recipientAccountId: string): Promise<string> {
+    if (this.forceDemo || !isLiveSaucerSwapQuote(quote)) {
+      return this.demoBuilder.buildSwapTransactionBytes(quote, recipientAccountId);
+    }
+
+    return this.liveBuilder.buildSwapTransactionBytes(quote, recipientAccountId);
+  }
+}
+
 export class DemoSwapTransactionBuilder implements SwapTransactionBuilder {
+  constructor(
+    private readonly network: "mainnet" | "testnet" | "previewnet" = "testnet",
+    private readonly demoTopicId?: string
+  ) {}
+
   async buildSwapTransactionBytes(quote: TradeQuote, recipientAccountId: string): Promise<string> {
     const sdk = await import("@hiero-ledger/sdk") as Record<string, any>;
-    const client = sdk.Client.forTestnet();
+    const client = this.network === "mainnet"
+      ? sdk.Client.forMainnet()
+      : this.network === "previewnet"
+        ? sdk.Client.forPreviewnet()
+        : sdk.Client.forTestnet();
     try {
-      const tx = new sdk.TransferTransaction()
-        .setTransactionMemo(`Demo wallet approval for ${quote.id} to ${recipientAccountId}`)
-        .setTransactionId(sdk.TransactionId.generate(sdk.AccountId.fromString(quote.accountId)))
-        .freezeWith(client);
+      const payerAccountId = sdk.AccountId.fromString(quote.accountId);
+      const tx = this.demoTopicId
+        ? new sdk.TopicMessageSubmitTransaction()
+          .setTopicId(this.demoTopicId)
+          .setMessage(JSON.stringify({
+            kind: "demo_trade_approval",
+            quoteId: quote.id,
+            quoteHash: quote.quoteHash,
+            accountId: quote.accountId,
+            recipientAccountId,
+            tokenIn: quote.tokenIn,
+            tokenOut: quote.tokenOut,
+            amountIn: quote.amountIn,
+            minimumAmountOut: minimumOutHuman(quote)
+          }))
+          .setTransactionMemo(`Demo approval for ${quote.id}`)
+          .setTransactionId(sdk.TransactionId.generate(payerAccountId))
+        : new sdk.TransferTransaction()
+          .setTransactionMemo(`Demo wallet approval for ${quote.id} to ${recipientAccountId}`)
+          .setTransactionId(sdk.TransactionId.generate(payerAccountId));
+
+      tx.freezeWith(client);
 
       return Buffer.from(tx.toBytes()).toString("base64");
     } finally {
@@ -22,6 +65,10 @@ export class DemoSwapTransactionBuilder implements SwapTransactionBuilder {
       }
     }
   }
+}
+
+export function isLiveSaucerSwapQuote(quote: TradeQuote): boolean {
+  return quote.source === "saucerswap-v2-quoter";
 }
 
 export class ProposalBuilder {
@@ -47,11 +94,7 @@ export class ProposalBuilder {
       accountId,
       recipientAccountId,
       transactionBytes,
-      approvalSummary: [
-        `Approve swap of ${quote.amountIn} ${quote.tokenIn} to at least ${minimumOutHuman(quote)} ${quote.tokenOut}.`,
-        `Slippage limit: ${quote.slippageBps} bps.`,
-        `Quote expires: ${quote.expiresAt}.`
-      ].join(" "),
+      approvalSummary: buildApprovalSummary(quote),
       status: "proposed",
       createdAt: this.now().toISOString(),
       expiresAt: quote.expiresAt,
@@ -73,4 +116,22 @@ function minimumOutHuman(quote: TradeQuote): string {
   const ratio = Number(min) / Number(quote.amountOutSmallest);
   const expected = Number(quote.amountOut) * ratio;
   return Number.isFinite(expected) ? expected.toFixed(6).replace(/0+$/, "").replace(/\.$/, "") : quote.amountOut;
+}
+
+function buildApprovalSummary(quote: TradeQuote): string {
+  const liveSummary = [
+    `Approve swap of ${quote.amountIn} ${quote.tokenIn} to at least ${minimumOutHuman(quote)} ${quote.tokenOut}.`,
+    `Slippage limit: ${quote.slippageBps} bps.`,
+    `Quote expires: ${quote.expiresAt}.`
+  ];
+
+  if (isLiveSaucerSwapQuote(quote)) {
+    return liveSummary.join(" ");
+  }
+
+  return [
+    `Demo approval for ${quote.amountIn} ${quote.tokenIn} to at least ${minimumOutHuman(quote)} ${quote.tokenOut}.`,
+    "This proposal signs a safe Hedera demo transaction because the quote came from demo/fallback mode.",
+    `Quote source: ${quote.source}.`
+  ].join(" ");
 }

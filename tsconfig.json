@@ -14,5 +14,5 @@
     "exactOptionalPropertyTypes": true,
     "types": ["node"]
   },
-  "include": ["apps/**/*.ts", "apps/**/*.tsx", "packages/**/*.ts", "tests/**/*.ts"]
+  "include": ["apps/api/**/*.ts", "packages/**/*.ts", "tests/**/*.ts"]
 }

@@ -112,7 +112,8 @@ export const tradeProposeResponseSchema = z.object({
 
 export const tradeCompleteRequestSchema = z.object({
   transactionId: z.string().min(3).optional(),
-  status: z.enum(["submitted", "wallet_rejected"]).default("submitted")
+  status: z.enum(["submitted", "wallet_rejected", "failed"]).default("submitted"),
+  failureReason: z.string().max(1000).optional()
 });
 
 export const strategyEvaluateRequestSchema = tradeQuoteRequestSchema.extend({

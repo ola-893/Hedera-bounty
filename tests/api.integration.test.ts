@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { Transaction } from "@hiero-ledger/sdk";
+import { ContractExecuteTransaction, Transaction, TransferTransaction } from "@hiero-ledger/sdk";
 import { buildApp } from "../apps/api/src/app";
 import { createApiConfig } from "../apps/api/src/config";
 import { MirrorNodeClient } from "../packages/hedera/src/mirrorNode";
@@ -86,6 +86,48 @@ test("api accepts browser preflight from the frontend dev server", async () => {
 
   assert.equal(response.statusCode, 204);
   assert.equal(response.headers["access-control-allow-origin"], "http://localhost:5173");
+
+  await app.close();
+});
+
+test("demo quote proposals use wallet-safe memo bytes instead of router contract execution", async () => {
+  const config = await createApiConfig({
+    HEDERA_NETWORK: "testnet",
+    ENABLE_MAINNET: "false",
+    SAUCERSWAP_LIVE_QUOTES: "false"
+  } as NodeJS.ProcessEnv);
+  const policyEngine = new TradingPolicyEngine(config.policy);
+  const quoteService = new QuoteService(policyEngine, new DemoSaucerSwapQuoteProvider());
+  const app = await buildApp({
+    config,
+    policyEngine,
+    quoteService,
+    store: new InMemoryTradingStore(),
+    mirrorNode: new FakeMirrorNodeClient()
+  });
+
+  const quote = (await app.inject({
+    method: "POST",
+    url: "/api/trades/quote",
+    payload: {
+      accountId: "0.0.1234",
+      tokenIn: "HBAR",
+      tokenOut: "SAUCE",
+      amountIn: "10",
+      slippageBps: 100
+    }
+  })).json();
+
+  const proposal = (await app.inject({
+    method: "POST",
+    url: "/api/trades/propose",
+    payload: { quoteId: quote.id, accountId: "0.0.1234" }
+  })).json();
+
+  const transaction = Transaction.fromBytes(Buffer.from(proposal.transactionBytes, "base64"));
+  assert.equal(transaction instanceof TransferTransaction, true);
+  assert.equal(transaction instanceof ContractExecuteTransaction, false);
+  assert.match(proposal.approvalSummary, /Demo approval/);
 
   await app.close();
 });

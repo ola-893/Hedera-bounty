@@ -12,7 +12,7 @@ import {
   TransactionId,
   TransferTransaction,
   Client,
-} from "@hashgraph/sdk";
+} from "@hiero-ledger/sdk";
 import { ContractFunctionParameterBuilder } from "../contractFunctionParameterBuilder";
 import { appConfig } from "../../../config";
 import {
@@ -348,6 +348,14 @@ class WalletConnectWallet implements WalletInterface {
       }
 
       const txId = txResponse.transactionId.toString();
+      if (typeof txResponse.getReceiptWithSigner === "function") {
+        const receipt = await txResponse.getReceiptWithSigner(signer as any);
+        const receiptStatus = receipt?.status?.toString?.() ?? "";
+        if (receiptStatus && receiptStatus !== "SUCCESS") {
+          throw new Error(`Wallet submitted transaction ${txId}, but network receipt status was ${receiptStatus}.`);
+        }
+      }
+
       console.log("Transaction executed:", txId);
       return txId;
     } catch (error: any) {

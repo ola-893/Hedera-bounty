@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useCallback } from "react";
 import type { ReactNode } from "react";
-import { AccountId, TokenId } from "@hashgraph/sdk";
+import { AccountId, TokenId } from "@hiero-ledger/sdk";
 import { dappConnector } from "../services/wallets/walletconnect/walletConnectClient";
 import { openWalletConnectModal } from "../services/wallets/walletconnect/walletConnectClient";
 import { MirrorNodeClient } from "../services/wallets/mirrorNodeClient";
@@ -102,7 +102,7 @@ export const WalletProvider = ({ children }: { children: ReactNode }) => {
         ? convertEvmToHederaAddress(tokenAddress)
         : tokenAddress;
 
-      const { TokenAssociateTransaction } = await import("@hashgraph/sdk");
+      const { TokenAssociateTransaction } = await import("@hiero-ledger/sdk");
 
       const associateTransaction = new TokenAssociateTransaction()
         .setAccountId(AccountId.fromString(address))

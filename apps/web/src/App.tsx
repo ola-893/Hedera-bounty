@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Transaction } from '@hashgraph/sdk';
+import { Transaction } from '@hiero-ledger/sdk';
 import { useWallet } from './contexts/WalletContext';
 import { walletConnectWallet } from './services/wallets/walletconnect/walletConnectClient';
 
@@ -340,7 +340,30 @@ export default function App() {
         addMessage('system', 'Waiting for wallet confirmation.');
         const txBytes = decodeBase64Bytes(currentProposal.transactionBytes);
         const transaction = Transaction.fromBytes(txBytes);
-        const txId = await walletConnectWallet.sendTransaction(transaction);
+        let txId: string | null;
+        try {
+          txId = await walletConnectWallet.sendTransaction(transaction);
+        } catch (walletErr) {
+          const failureReason = getErrorMessage(walletErr);
+          const failedStatus = /reject/i.test(failureReason) ? 'wallet_rejected' : 'failed';
+          const failedTxId = extractTransactionId(failureReason);
+          const data = await postTradeCompletion(currentProposal.proposalId, failedStatus, failedTxId, failureReason);
+
+          addMessage(
+            'system',
+            failedStatus === 'wallet_rejected'
+              ? `Wallet rejected the proposal. Status: ${data.status ?? failedStatus}`
+              : `Wallet/network execution failed. Status: ${data.status ?? failedStatus}. ${failureReason}`
+          );
+
+          if (failedStatus === 'wallet_rejected') {
+            setCurrentQuote(null);
+            setCurrentProposal(null);
+          } else {
+            setCurrentProposal(prev => prev ? { ...prev, status: 'failed' } : prev);
+          }
+          return;
+        }
 
         if (!txId) {
           throw new Error('Transaction failed or was rejected by wallet.');
@@ -349,13 +372,7 @@ export default function App() {
         finalTransactionId = txId;
       }
 
-      const res = await fetch(`${API}/api/trades/${currentProposal.proposalId}/complete`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: action, transactionId: finalTransactionId })
-      });
-
-      const data = await res.json().catch(() => ({}));
+      const data = await postTradeCompletion(currentProposal.proposalId, action, finalTransactionId);
 
       addMessage(
         'system',
@@ -373,6 +390,25 @@ export default function App() {
       void refreshAudit();
       if (accountId) void refreshPortfolio(accountId);
     }
+  }
+
+  async function postTradeCompletion(
+    proposalId: string,
+    status: 'submitted' | 'wallet_rejected' | 'failed',
+    transactionId?: string,
+    failureReason?: string
+  ) {
+    const res = await fetch(`${API}/api/trades/${proposalId}/complete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status, transactionId, failureReason })
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.error || res.statusText);
+    }
+    return data;
   }
 
   async function handleCheckStatus() {
@@ -736,6 +772,10 @@ export default function App() {
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Unknown error';
+}
+
+function extractTransactionId(message: string): string | undefined {
+  return message.match(/\d+\.\d+\.\d+@\d+\.\d+/)?.[0];
 }
 
 function decodeBase64Bytes(value: string): Uint8Array {
